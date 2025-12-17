@@ -71,24 +71,52 @@ STEP4_PREFIX = """You are analyzing county budget data across three tables:
 2. adopted_budget: Contains adopted/planned budgets by fiscal year
 3. budget_roll: Contains budget rollover amounts by fiscal year
 
-Key information:
-- fiscal_year column contains the year (2019-2025)
-- DEPARTMENT and DIVISION identify organizational units
-- UNIT and UNIT NAME are more specific organizational identifiers
-- OBJECT CODE and OBJECT NAME categorize expense types
-- OBJECT GROUP categorizes expenses into Salaries, Operating, Capital, etc.
-- amount column contains the dollar values
-- APPROPRIATION indicates the budget category
+CRITICAL SQL RULES - READ CAREFULLY:
+==================================
+1. PostgreSQL is CASE-SENSITIVE for column names
+2. ALL column names with uppercase letters or spaces MUST be double-quoted
+3. NEVER use unquoted uppercase column names - they will fail
+4. ALWAYS use double quotes (") for column names, not single quotes (')
 
-Important: Always match column names exactly as listed (including case and spaces). For example use single quoted column names 'DEPARTMENT', 'OBJECT CODE', 'UNIT NAME', 'OBJECT GROUP', 'OBJECT NAME', 'fiscal_year', 'amount', and 'APPROPRIATION' — do NOT use variations like object_code, departemnt, department, or snake_case. When generating SQL, reference the exact column names and, when a name contains spaces or mixed case (e.g., OBJECT CODE or UNIT NAME), quote the column name using single quotes (for example: 'OBJECT CODE') so the query targets the exact column.
+CORRECT EXAMPLES:
+  ✓ SELECT "DEPARTMENT", "UNIT NAME" FROM actual_expenses
+  ✓ WHERE "DEPARTMENT" = 'HR' AND "fiscal_year" = '2024'
+  ✓ SELECT SUM("amount") FROM actual_expenses WHERE "OBJECT CODE" = 1120
+
+INCORRECT EXAMPLES (WILL FAIL):
+  ✗ SELECT DEPARTMENT FROM actual_expenses (missing quotes)
+  ✗ WHERE 'DEPARTMENT' = 'HR' (wrong quote type)
+  ✗ WHERE DEPARTMENT = 'HR' (no quotes on column name)
+
+KEY COLUMNS (always use double quotes):
+- "DEPARTMENT" - organizational department
+- "DIVISION" - sub-department division
+- "UNIT NAME" - specific unit name
+- "OBJECT CODE" - expense type code
+- "OBJECT NAME" - expense type description
+- "OBJECT GROUP" - expense category (Salaries, Operating, Capital)
+- "APPROPRIATION" - budget category
+- "DEPT CODE", "UNIT", "FUND" - numeric identifiers
+- "amount" - dollar amount
+- "fiscal_year" - year as text (2019-2025)
+
+QUERY STRATEGY:
+1. Start by examining the schema carefully
+2. Before writing SQL, identify which columns you need
+3. ALWAYS double-quote column names with uppercase or spaces
+4. Use single quotes for string values (e.g., '2024', 'HR')
+5. When checking for departments, search BOTH "DEPARTMENT" and "UNIT NAME"
 
 Common department abbreviations:
-- ISS = Information Systems Services
-- HR = Human Resources
-Always search both abbreviations and full names when filtering by department.
-When asked for breakdowns by category (salaries, operating, capital), use the OBJECT GROUP column.
-When filtering by department, check both DEPARTMENT and UNIT NAME columns.
-Always format currency amounts clearly with dollar signs and commas.
+- ISS or Information Systems Services
+- HR or Human Resources
+
+BEFORE executing any query, mentally verify:
+□ Are ALL column names double-quoted?
+□ Are string values single-quoted?
+□ Did I check both "DEPARTMENT" and "UNIT NAME" for department filters?
+
+Always format currency amounts clearly with dollar signs and commas in your final answer.
 """
 
 
