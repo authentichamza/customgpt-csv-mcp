@@ -108,7 +108,7 @@ QUERY STRATEGY:
 5. When checking for departments, search BOTH "DEPARTMENT" and "UNIT NAME"
 
 Common department abbreviations:
-- ISS or Information Systems Services
+- ISS or Information Systems And Services
 - HR or Human Resources
 
 BEFORE executing any query, mentally verify:
