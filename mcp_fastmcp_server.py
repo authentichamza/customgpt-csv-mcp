@@ -10,6 +10,10 @@ import os
 import logging
 from typing import Any
 
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_community.utilities import SQLDatabase
 from langchain_openai import ChatOpenAI
@@ -22,6 +26,41 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+class AuthTokenMiddleware(BaseHTTPMiddleware):
+    def __init__(
+        self,
+        app,
+        *,
+        token: str,
+        protected_prefix: str = "/mcp",
+        exempt_paths: set[str] | None = None,
+    ):
+        super().__init__(app)
+        self.token = token
+        self.protected_prefix = protected_prefix
+        self.exempt_paths = exempt_paths or set()
+
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path in self.exempt_paths or not path.startswith(self.protected_prefix):
+            return await call_next(request)
+
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        auth_header = request.headers.get("authorization", "")
+        token_header = request.headers.get("x-auth-token", "")
+
+        expected_bearer = f"Bearer {self.token}"
+        if auth_header == expected_bearer or auth_header == self.token or token_header == self.token:
+            return await call_next(request)
+
+        return JSONResponse(
+            {"error": "Unauthorized"},
+            status_code=401,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 STEP4_PREFIX = """You are analyzing county budget data across three tables:
 
@@ -242,4 +281,22 @@ def ask_budget(
 
 if __name__ == "__main__":
     logger.info("Starting MCP server...")
-    mcp.run(transport="streamable-http")
+    auth_token = os.getenv("AUTH_TOKEN", "").strip()
+    if auth_token:
+        import uvicorn
+
+        app = mcp.streamable_http_app()
+        app.add_middleware(
+            AuthTokenMiddleware,
+            token=auth_token,
+            protected_prefix=mcp.settings.streamable_http_path,
+            exempt_paths={"/health"},
+        )
+        uvicorn.run(
+            app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level=mcp.settings.log_level.lower(),
+        )
+    else:
+        mcp.run(transport="streamable-http")
