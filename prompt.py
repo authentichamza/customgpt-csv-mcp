@@ -101,7 +101,7 @@ DEPARTMENT (top level)
 MANDATORY KEYWORD SEARCH STRATEGY - CRITICAL:
 ==============================================
 **ABSOLUTE RULE: When searching for ANY organizational entity by keyword, you MUST:**
-1. Search ALL FOUR text columns: "DEPARTMENT", "DIVISION", "UNIT NAME", "OBJECT NAME"
+1. Search in all columns step by step FOUR text columns: "DEPARTMENT", "DIVISION", "UNIT NAME", "OBJECT NAME"
 2. Search BOTH the abbreviation AND the full name(s)
 3. Use ILIKE with % wildcards
 4. Connect everything with OR operators
@@ -123,15 +123,15 @@ WHERE (
     OR "UNIT NAME" ILIKE '%abbreviation%'
     OR "OBJECT NAME" ILIKE '%abbreviation%'
     -- Search for full name in all 4 columns
+    OR "DEPARTMENT" ILIKE '%full name%'
+    OR "DIVISION" ILIKE '%full name%'
+    OR "UNIT NAME" ILIKE '%full name%'
+    OR "OBJECT NAME" ILIKE '%full name%'
+    -- Search for variations in all 4 columns
     OR "DEPARTMENT" ILIKE '%full%name%'
     OR "DIVISION" ILIKE '%full%name%'
     OR "UNIT NAME" ILIKE '%full%name%'
     OR "OBJECT NAME" ILIKE '%full%name%'
-    -- Search for variations in all 4 columns
-    OR "DEPARTMENT" ILIKE '%variation%'
-    OR "DIVISION" ILIKE '%variation%'
-    OR "UNIT NAME" ILIKE '%variation%'
-    OR "OBJECT NAME" ILIKE '%variation%'
 )
 ```
 
@@ -144,10 +144,10 @@ WHERE (
     OR "UNIT NAME" ILIKE '%ISS%'
     OR "OBJECT NAME" ILIKE '%ISS%'
     -- Full name: Information Systems and Services
-    OR "DEPARTMENT" ILIKE '%Information%Systems%Services%'
-    OR "DIVISION" ILIKE '%Information%Systems%Services%'
-    OR "UNIT NAME" ILIKE '%Information%Systems%Services%'
-    OR "OBJECT NAME" ILIKE '%Information%Systems%Services%'
+    OR "DEPARTMENT" ILIKE '%Information Systems and Services%'
+    OR "DIVISION" ILIKE '%Information Systems and Services%'
+    OR "UNIT NAME" ILIKE '%Information Systems and Services%'
+    OR "OBJECT NAME" ILIKE '%Information Systems and Services%'
     -- Variation: Information Systems
     OR "DEPARTMENT" ILIKE '%Information%Systems%'
     OR "DIVISION" ILIKE '%Information%Systems%'
@@ -155,50 +155,6 @@ WHERE (
     OR "OBJECT NAME" ILIKE '%Information%Systems%'
 )
 ```
-
-**CORRECT EXAMPLE - HR/Human Resources:**
-```sql
-WHERE (
-    -- Abbreviation: HR
-    "DEPARTMENT" ILIKE '%HR%'
-    OR "DIVISION" ILIKE '%HR%'
-    OR "UNIT NAME" ILIKE '%HR%'
-    OR "OBJECT NAME" ILIKE '%HR%'
-    -- Full name: Human Resources
-    OR "DEPARTMENT" ILIKE '%Human%Resources%'
-    OR "DIVISION" ILIKE '%Human%Resources%'
-    OR "UNIT NAME" ILIKE '%Human%Resources%'
-    OR "OBJECT NAME" ILIKE '%Human%Resources%'
-)
-```
-
-**CORRECT EXAMPLE - Public Works:**
-```sql
-WHERE (
-    -- Abbreviation: PW
-    "DEPARTMENT" ILIKE '%PW%'
-    OR "DIVISION" ILIKE '%PW%'
-    OR "UNIT NAME" ILIKE '%PW%'
-    OR "OBJECT NAME" ILIKE '%PW%'
-    -- Full name: Public Works
-    OR "DEPARTMENT" ILIKE '%Public%Works%'
-    OR "DIVISION" ILIKE '%Public%Works%'
-    OR "UNIT NAME" ILIKE '%Public%Works%'
-    OR "OBJECT NAME" ILIKE '%Public%Works%'
-)
-```
-
-**INCORRECT EXAMPLES (WILL MISS DATA):**
-✗ WHERE "DIVISION" ILIKE '%ISS%' 
-   (Missing: other 3 columns, full name, variations)
-
-✗ WHERE ("DEPARTMENT" ILIKE '%ISS%' OR "DIVISION" ILIKE '%ISS%' 
-         OR "UNIT NAME" ILIKE '%ISS%' OR "OBJECT NAME" ILIKE '%ISS%')
-   (Missing: full name "Information Systems and Services")
-
-✗ WHERE "DIVISION" ILIKE '%Information%Systems%'
-   (Missing: other 3 columns, abbreviation "ISS")
-
 **WHY THIS MATTERS:**
 - Data may use "ISS" in some records and "Information Systems and Services" in others
 - Different tables or fiscal years may use different naming conventions
