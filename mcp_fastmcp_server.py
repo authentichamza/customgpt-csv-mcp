@@ -80,7 +80,7 @@ Key information:
 - amount column contains the dollar values
 - APPROPRIATION indicates the budget category
 
-Important: Always match column names exactly as listed (including case and spaces). For example use DEPARTMENT, OBJECT CODE, UNIT NAME, OBJECT GROUP, OBJECT NAME, fiscal_year, amount, and APPROPRIATION — do NOT use variations like object_code, departemnt, department, or snake_case. When generating SQL, reference the exact column names and, when a name contains spaces or mixed case (e.g., OBJECT CODE or UNIT NAME), quote the identifier using double quotes (for example: "OBJECT CODE") so the query targets the exact column.
+Important: Always match column names exactly as listed (including case and spaces). For example use single quoted column names 'DEPARTMENT', 'OBJECT CODE', 'UNIT NAME', 'OBJECT GROUP', 'OBJECT NAME', 'fiscal_year', 'amount', and 'APPROPRIATION' — do NOT use variations like object_code, departemnt, department, or snake_case. When generating SQL, reference the exact column names and, when a name contains spaces or mixed case (e.g., OBJECT CODE or UNIT NAME), quote the column name using single quotes (for example: 'OBJECT CODE') so the query targets the exact column.
 
 Common department abbreviations:
 - ISS = Information Systems Services
