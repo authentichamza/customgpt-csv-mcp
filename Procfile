@@ -1,1 +1,1 @@
-web: python3 mcp_fastmcp_server
+web: python3 mcp_fastmcp_server.py
