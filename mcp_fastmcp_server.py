@@ -371,7 +371,7 @@ mcp = FastMCP(
     host=os.getenv("HOST", "0.0.0.0"),
     port=int(os.getenv("PORT", "8000")),
     transport_security=transport_security,
-    stateless_http=False,
+    stateless_http=True,
 )
 
 # Per-process cache (note: with multiple Heroku workers, each worker has its own cache)
@@ -385,7 +385,6 @@ def _get_agent_executor(
     temperature: float,
     sample_rows_in_table_info: int,
     verbose: bool,
-    force_rebuild: bool = False,
 ):
     """Get or create the agent executor (built once per process by default)."""
     global _agent_executor, _agent_config
@@ -415,10 +414,9 @@ def _get_agent_executor(
 _get_agent_executor(
     database_url=os.getenv("PG_DATABASE_URL"),
     model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
-    temperature=float(os.getenv("OPENAI_TEMPERATURE", "0")),
-    sample_rows_in_table_info=int(os.getenv("SQL_SAMPLE_ROWS_IN_TABLE_INFO", "2")),
-    verbose=os.getenv("AGENT_VERBOSE", "0") == "1",
-    force_rebuild=True,
+    temperature=float(os.getenv("OPENAI_TEMPERATURE", 0)),
+    sample_rows_in_table_info=int(os.getenv("SQL_SAMPLE_ROWS_IN_TABLE_INFO", 2)),
+    verbose=True
 )
 
 @mcp.tool()
