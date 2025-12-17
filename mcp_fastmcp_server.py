@@ -197,6 +197,7 @@ mcp = FastMCP(
     host=os.getenv("HOST", "0.0.0.0"),
     port=int(os.getenv("PORT", "8000")),
     transport_security=transport_security,
+    stateless_http=os.getenv("MCP_STATELESS_HTTP", "1") == "1",
 )
 
 # Per-process cache (note: with multiple Heroku workers, each worker has its own cache)
