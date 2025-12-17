@@ -85,7 +85,7 @@ Important: Always match column names exactly as listed (including case and space
 Common department abbreviations:
 - ISS = Information Systems Services
 - HR = Human Resources
-
+Always search both abbreviations and full names when filtering by department.
 When asked for breakdowns by category (salaries, operating, capital), use the OBJECT GROUP column.
 When filtering by department, check both DEPARTMENT and UNIT NAME columns.
 Always format currency amounts clearly with dollar signs and commas.
