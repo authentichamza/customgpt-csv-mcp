@@ -23,6 +23,8 @@ from langchain_openai import ChatOpenAI
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+from prompt_step4 import STEP4_PREFIX
+
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
@@ -66,7 +68,7 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
         )
 
 
-STEP4_PREFIX = """You are analyzing county budget data across three tables:
+LEGACY_STEP4_PREFIX = """You are analyzing county budget data across three tables:
 
 1. actual_expenses: Contains actual spending by fiscal year
 2. adopted_budget: Contains adopted/planned budgets by fiscal year
@@ -312,29 +314,6 @@ def build_agent_executor(
     # Heroku commonly provides DATABASE_URL as `postgres://...` but SQLAlchemy expects `postgresql://...`
     if db_url.startswith("postgres://"):
         db_url = "postgresql://" + db_url[len("postgres://") :]
-   
-
-
-def build_agent_executor(
-    *,
-    database_url: str | None = None,
-    model_name: str = "gpt-4o-mini",
-    temperature: float = 0,
-    sample_rows_in_table_info: int = 2,
-    verbose: bool = False,
-    timeout: float | None = None,
-    max_retries: int | None = 2,
-):
-    """Build the LangChain SQL agent executor."""
-    logger.info(f"Building agent executor with model={model_name}")
-    
-    db_url = database_url or os.getenv(
-        "DATABASE_URL",
-        "postgresql://postgres:postgres@localhost:5432/ocfl",
-    )
-    # Heroku commonly provides DATABASE_URL as `postgres://...` but SQLAlchemy expects `postgresql://...`
-    if db_url.startswith("postgres://"):
-        db_url = "postgresql://" + db_url[len("postgres://") :]
     
     logger.info(f"Connecting to database: {db_url.split('@')[-1]}")  # Log without credentials
     
@@ -392,14 +371,12 @@ mcp = FastMCP(
     host=os.getenv("HOST", "0.0.0.0"),
     port=int(os.getenv("PORT", "8000")),
     transport_security=transport_security,
-    stateless_http=os.getenv("MCP_STATELESS_HTTP", "1") == "1",
+    stateless_http=False,
 )
 
 # Per-process cache (note: with multiple Heroku workers, each worker has its own cache)
 _agent_executor: Any | None = None
 _agent_config: tuple[Any, ...] | None = None
-_agent_lock = threading.Lock()
-
 
 def _get_agent_executor(
     *,
@@ -410,7 +387,7 @@ def _get_agent_executor(
     verbose: bool,
     force_rebuild: bool = False,
 ):
-    """Get or create the agent executor (with simple caching)."""
+    """Get or create the agent executor (built once per process by default)."""
     global _agent_executor, _agent_config
 
     config = (
@@ -421,34 +398,35 @@ def _get_agent_executor(
         bool(verbose),
     )
 
-    with _agent_lock:
-        if force_rebuild or _agent_executor is None or _agent_config != config:
-            logger.info(f"Building new agent (force_rebuild={force_rebuild})")
-            _agent_executor = build_agent_executor(
-                database_url=config[0],
-                model_name=model_name,
-                temperature=temperature,
-                sample_rows_in_table_info=sample_rows_in_table_info,
-                verbose=verbose,
-                timeout=float(os.getenv("OPENAI_TIMEOUT", "60")),
-                max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "2")),
-            )
-            _agent_config = config
-        else:
-            logger.info("Using cached agent executor")
+    logger.info("Building agent executor (first initialization)")
+    _agent_executor = build_agent_executor(
+        database_url=config[0],
+        model_name=model_name,
+        temperature=temperature,
+        sample_rows_in_table_info=sample_rows_in_table_info,
+        verbose=verbose,
+        timeout=float(os.getenv("OPENAI_TIMEOUT", "60")),
+        max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "2")),
+    )
+    _agent_config = config
 
     return _agent_executor
 
+_get_agent_executor(
+    database_url=os.getenv("PG_DATABASE_URL"),
+    model_name=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
+    temperature=float(os.getenv("OPENAI_TEMPERATURE", "0")),
+    sample_rows_in_table_info=int(os.getenv("SQL_SAMPLE_ROWS_IN_TABLE_INFO", "2")),
+    verbose=os.getenv("AGENT_VERBOSE", "0") == "1",
+    force_rebuild=True,
+)
 
 @mcp.tool()
 async def ask_budget(
     question: str,
-    database_url: str | None = None,
     model_name: str = "gpt-4o-mini",
     temperature: float = 0,
-    sample_rows_in_table_info: int = 2,
     verbose: bool = True,  # Default to True for debugging
-    force_rebuild: bool = False,
 ) -> dict:
     """
     Analyze a natural-language question using the SQL agent.
@@ -480,19 +458,7 @@ async def ask_budget(
         return {"ok": False, "error": "OPENAI_API_KEY is not set"}
 
     try:
-        def _run_in_thread():
-            agent_executor = _get_agent_executor(
-                database_url=database_url,
-                model_name=model_name,
-                temperature=temperature,
-                sample_rows_in_table_info=sample_rows_in_table_info,
-                verbose=verbose,
-                force_rebuild=force_rebuild,
-            )
-            logger.info(f"Invoking agent with question: {question}")
-            return agent_executor.invoke({"input": question})
-
-        result = await anyio.to_thread.run_sync(_run_in_thread)
+        result = _agent_executor.run(question)
         
         logger.info(f"Agent completed. Result type: {type(result)}")
         
