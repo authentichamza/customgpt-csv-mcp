@@ -8,3 +8,4 @@ openai
 httpx<0.28
 python-dotenv
 mcp
+uvicorn

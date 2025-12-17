@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import os
 import logging
+import threading
 from typing import Any
 
+import anyio
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, PlainTextResponse
+from starlette.routing import Route
 
 from langchain_community.agent_toolkits import create_sql_agent
 from langchain_community.utilities import SQLDatabase
@@ -101,7 +104,7 @@ def build_agent_executor(
     logger.info(f"Building agent executor with model={model_name}")
     
     db_url = database_url or os.getenv(
-        "PG_DATABASE_URL",
+        "DATABASE_URL",
         "postgresql://postgres:postgres@localhost:5432/ocfl",
     )
     # Heroku commonly provides DATABASE_URL as `postgres://...` but SQLAlchemy expects `postgresql://...`
@@ -166,9 +169,10 @@ mcp = FastMCP(
     transport_security=transport_security,
 )
 
-# Simple global cache - no threading needed
+# Per-process cache (note: with multiple Heroku workers, each worker has its own cache)
 _agent_executor: Any | None = None
 _agent_config: tuple[Any, ...] | None = None
+_agent_lock = threading.Lock()
 
 
 def _get_agent_executor(
@@ -184,33 +188,34 @@ def _get_agent_executor(
     global _agent_executor, _agent_config
 
     config = (
-        database_url or os.getenv("PG_DATABASE_URL"),
+        database_url or os.getenv("DATABASE_URL"),
         model_name,
         float(temperature),
         int(sample_rows_in_table_info),
         bool(verbose),
     )
 
-    if force_rebuild or _agent_executor is None or _agent_config != config:
-        logger.info(f"Building new agent (force_rebuild={force_rebuild})")
-        _agent_executor = build_agent_executor(
-            database_url=config[0],
-            model_name=model_name,
-            temperature=temperature,
-            sample_rows_in_table_info=sample_rows_in_table_info,
-            verbose=verbose,
-            timeout=float(os.getenv("OPENAI_TIMEOUT", "60")),
-            max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "2")),
-        )
-        _agent_config = config
-    else:
-        logger.info("Using cached agent executor")
+    with _agent_lock:
+        if force_rebuild or _agent_executor is None or _agent_config != config:
+            logger.info(f"Building new agent (force_rebuild={force_rebuild})")
+            _agent_executor = build_agent_executor(
+                database_url=config[0],
+                model_name=model_name,
+                temperature=temperature,
+                sample_rows_in_table_info=sample_rows_in_table_info,
+                verbose=verbose,
+                timeout=float(os.getenv("OPENAI_TIMEOUT", "60")),
+                max_retries=int(os.getenv("OPENAI_MAX_RETRIES", "2")),
+            )
+            _agent_config = config
+        else:
+            logger.info("Using cached agent executor")
 
     return _agent_executor
 
 
 @mcp.tool()
-def ask_budget(
+async def ask_budget(
     question: str,
     database_url: str | None = None,
     model_name: str = "gpt-4o-mini",
@@ -249,20 +254,19 @@ def ask_budget(
         return {"ok": False, "error": "OPENAI_API_KEY is not set"}
 
     try:
-        # Get the agent executor
-        agent_executor = _get_agent_executor(
-            database_url=database_url,
-            model_name=model_name,
-            temperature=temperature,
-            sample_rows_in_table_info=sample_rows_in_table_info,
-            verbose=verbose,
-            force_rebuild=force_rebuild,
-        )
-        
-        logger.info(f"Invoking agent with question: {question}")
-        
-        # Invoke the agent synchronously
-        result = agent_executor.invoke({"input": question})
+        def _run_in_thread():
+            agent_executor = _get_agent_executor(
+                database_url=database_url,
+                model_name=model_name,
+                temperature=temperature,
+                sample_rows_in_table_info=sample_rows_in_table_info,
+                verbose=verbose,
+                force_rebuild=force_rebuild,
+            )
+            logger.info(f"Invoking agent with question: {question}")
+            return agent_executor.invoke({"input": question})
+
+        result = await anyio.to_thread.run_sync(_run_in_thread)
         
         logger.info(f"Agent completed. Result type: {type(result)}")
         
@@ -279,24 +283,42 @@ def ask_budget(
         return {"ok": False, "error": str(e)}
 
 
-if __name__ == "__main__":
-    logger.info("Starting MCP server...")
+def create_app():
+    """
+    Create the Starlette ASGI app for StreamableHTTP.
+    Exporting a module-level `app` allows Uvicorn/Gunicorn workers on Heroku.
+    """
+    app = mcp.streamable_http_app()
+
+    async def healthz(_request: Request):
+        return PlainTextResponse("ok")
+
+    app.router.routes.append(Route("/healthz", endpoint=healthz, methods=["GET"]))
+
     auth_token = os.getenv("AUTH_TOKEN", "").strip()
     if auth_token:
-        import uvicorn
-
-        app = mcp.streamable_http_app()
         app.add_middleware(
             AuthTokenMiddleware,
             token=auth_token,
             protected_prefix=mcp.settings.streamable_http_path,
-            exempt_paths={"/health"},
+            exempt_paths={"/healthz"},
         )
-        uvicorn.run(
-            app,
-            host=mcp.settings.host,
-            port=mcp.settings.port,
-            log_level=mcp.settings.log_level.lower(),
-        )
-    else:
-        mcp.run(transport="streamable-http")
+
+    return app
+
+
+# ASGI app entrypoint for Procfile: `uvicorn mcp_fastmcp_server:app --port $PORT`
+app = create_app()
+
+
+if __name__ == "__main__":
+    logger.info("Starting MCP server...")
+    import uvicorn
+
+    uvicorn.run(
+        "mcp_fastmcp_server:app",
+        host=mcp.settings.host,
+        port=mcp.settings.port,
+        log_level=mcp.settings.log_level.lower(),
+        workers=1,
+    )

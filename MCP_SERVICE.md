@@ -24,6 +24,7 @@ This repo includes a small MCP service that exposes a single tool which performs
 - `DATABASE_URL`: optional, defaults to `postgresql://postgres:postgres@localhost:5432/ocfl`
 - `HOST`: bind host for the MCP service (default `0.0.0.0`)
 - `PORT`: HTTP port for the MCP service (default `8000`)
+- `AUTH_TOKEN`: optional shared secret; when set, client must send `Authorization: Bearer <AUTH_TOKEN>` (or `X-Auth-Token: <AUTH_TOKEN>`) for `/mcp` requests
 - `MCP_ALLOWED_HOSTS`: optional, comma-separated allowlist for `Host` header (needed for ngrok/custom domains)
 - `MCP_ALLOWED_ORIGINS`: optional, comma-separated allowlist for `Origin` header (needed for browser-based clients)
 - `OPENAI_TIMEOUT`: optional request timeout seconds (default `60`)
@@ -33,13 +34,14 @@ This repo includes a small MCP service that exposes a single tool which performs
 ## Local Run
 
 1. Install Python deps: `python -m pip install -r requirements.txt`
-2. Start server: `HOST=127.0.0.1 PORT=8000 python mcp_fastmcp_server.py`
+2. Start server: `HOST=127.0.0.1 PORT=8000 uvicorn mcp_fastmcp_server:app --host 127.0.0.1 --port 8000`
 
 ## URL
 
 The StreamableHTTP endpoint is:
 
 - `http://localhost:8000/mcp`
+- Health check: `http://localhost:8000/healthz`
 
 ## Ngrok / Public URL
 
