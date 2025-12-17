@@ -72,6 +72,10 @@ STEP4_PREFIX = """You are analyzing county budget data across three tables:
 2. adopted_budget: Contains adopted/planned budgets by fiscal year
 3. budget_roll: Contains budget rollover amounts by fiscal year
 
+TABLE RELATIONSHIPS:
+- All tables can be joined on: "DEPT CODE", "UNIT", "FUND", "fiscal_year"
+- "OBJECT CODE" links expenses across tables
+
 CRITICAL SQL RULES - READ CAREFULLY:
 ==================================
 1. PostgreSQL is CASE-SENSITIVE for column names
@@ -80,7 +84,7 @@ CRITICAL SQL RULES - READ CAREFULLY:
 4. ALWAYS use double quotes (") for column names, not single quotes (')
 
 CORRECT EXAMPLES:
-  ✓ SELECT "DEPARTMENT", "UNIT NAME" FROM actual_expenses WHERE "DEPARTMENT" ILIKE '%HR%' LIMIT 10
+  ✓ SELECT "DEPARTMENT", "DIVISION", "UNIT NAME" FROM actual_expenses WHERE "DIVISION" ILIKE '%Information%' LIMIT 10
   ✓ WHERE "DEPARTMENT" = 'HR' AND "fiscal_year" = '2024'
   ✓ SELECT SUM("amount") FROM actual_expenses WHERE "OBJECT CODE" = 1120
 
@@ -88,71 +92,156 @@ INCORRECT EXAMPLES (WILL FAIL):
   ✗ SELECT DEPARTMENT FROM actual_expenses (missing quotes)
   ✗ WHERE 'DEPARTMENT' = 'HR' (wrong quote type)
   ✗ WHERE DEPARTMENT = 'HR' (no quotes on column name)
-  ✗ SELECT DISTINCT "DEPARTMENT" FROM adopted_budget (no LIMIT, will timeout)
 
 KEY COLUMNS (always use double quotes):
-- "DEPARTMENT" - organizational department
-- "DIVISION" - sub-department division
-- "UNIT NAME" - specific unit name
-- "OBJECT CODE" - expense type code
+- "DEPARTMENT" - top-level organizational department
+- "DIVISION" - sub-department division (e.g., "Information Systems and Services")
+- "UNIT NAME" - specific unit name within a division
 - "OBJECT NAME" - expense type description
-- "OBJECT GROUP" - expense category (110=Salaries, 310=Operating, 640=Capital)
+- "OBJECT CODE" - expense type code (numeric)
+- "OBJECT GROUP" - expense category code:
+  * 110 = Salaries & Benefits
+  * 310 = Operating Expenses
+  * 640 = Capital Outlay
 - "APPROPRIATION" - budget category
-- "DEPT CODE", "UNIT", "FUND" - numeric identifiers
-- "amount" - dollar amount
-- "fiscal_year" - year as text (2019-2025)
+- "DEPT CODE", "UNIT", "FUND" - numeric identifiers for JOINs
+- "amount" - dollar amount (numeric)
+- "fiscal_year" - year as text ('2019', '2020', ..., '2025')
 
-DEPARTMENT SEARCH RULES - EXTREMELY IMPORTANT:
-============================================
-When searching for departments, you MUST search for BOTH abbreviation AND full name in BOTH columns.
+ORGANIZATIONAL HIERARCHY:
+========================
+DEPARTMENT (top level)
+  └─ DIVISION (sub-department, e.g., "Information Systems and Services")
+      └─ UNIT NAME (specific unit)
+          └─ OBJECT NAME (what the money is spent on)
 
-Known Departments:
-1. ISS / Information Systems And Services / Information Systems Services
-2. HR / Human Resources
-3. Public Works
-4. Finance
-5. Planning
+MANDATORY KEYWORD SEARCH STRATEGY:
+==================================
+**CRITICAL RULE: When searching for ANY organizational entity or expense type by keyword, 
+you MUST search ALL FOUR text columns using ILIKE with OR operators.**
 
-CORRECT department filtering (searches all variations):
-✓ WHERE ("DEPARTMENT" ILIKE '%ISS%' OR "DEPARTMENT" ILIKE '%Information Systems%' 
-         OR "UNIT NAME" ILIKE '%ISS%' OR "UNIT NAME" ILIKE '%Information Systems%')
+THE FOUR TEXT COLUMNS TO SEARCH:
+1. "DEPARTMENT"
+2. "DIVISION" 
+3. "UNIT NAME"
+4. "OBJECT NAME"
 
-✓ WHERE ("DEPARTMENT" ILIKE '%HR%' OR "DEPARTMENT" ILIKE '%Human Resources%'
-         OR "UNIT NAME" ILIKE '%HR%' OR "UNIT NAME" ILIKE '%Human Resources%')
+**TEMPLATE FOR ALL KEYWORD SEARCHES:**
+```sql
+WHERE (
+    "DEPARTMENT" ILIKE '%keyword%'
+    OR "DIVISION" ILIKE '%keyword%'
+    OR "UNIT NAME" ILIKE '%keyword%'
+    OR "OBJECT NAME" ILIKE '%keyword%'
+)
+```
 
-INCORRECT department filtering (misses records):
-✗ WHERE "DEPARTMENT" = 'ISS'  (only finds exact match, misses variations)
-✗ WHERE "DEPARTMENT" = 'ISS' OR "UNIT NAME" = 'ISS'  (still only exact match)
+**CORRECT EXAMPLES:**
+
+Searching for ISS/Information Systems:
+✓ WHERE (
+    "DEPARTMENT" ILIKE '%ISS%'
+    OR "DIVISION" ILIKE '%ISS%'
+    OR "UNIT NAME" ILIKE '%ISS%'
+    OR "OBJECT NAME" ILIKE '%ISS%'
+    OR "DEPARTMENT" ILIKE '%Information%Systems%'
+    OR "DIVISION" ILIKE '%Information%Systems%'
+    OR "UNIT NAME" ILIKE '%Information%Systems%'
+    OR "OBJECT NAME" ILIKE '%Information%Systems%'
+)
+
+Searching for HR/Human Resources:
+✓ WHERE (
+    "DEPARTMENT" ILIKE '%HR%'
+    OR "DIVISION" ILIKE '%HR%'
+    OR "UNIT NAME" ILIKE '%HR%'
+    OR "OBJECT NAME" ILIKE '%HR%'
+    OR "DEPARTMENT" ILIKE '%Human%Resources%'
+    OR "DIVISION" ILIKE '%Human%Resources%'
+    OR "UNIT NAME" ILIKE '%Human%Resources%'
+    OR "OBJECT NAME" ILIKE '%Human%Resources%'
+)
+
+Searching for IT/Technology:
+✓ WHERE (
+    "DEPARTMENT" ILIKE '%IT%'
+    OR "DIVISION" ILIKE '%IT%'
+    OR "UNIT NAME" ILIKE '%IT%'
+    OR "OBJECT NAME" ILIKE '%IT%'
+    OR "DEPARTMENT" ILIKE '%Technology%'
+    OR "DIVISION" ILIKE '%Technology%'
+    OR "UNIT NAME" ILIKE '%Technology%'
+    OR "OBJECT NAME" ILIKE '%Technology%'
+)
+
+**INCORRECT EXAMPLES (WILL MISS DATA):**
+✗ WHERE "DEPARTMENT" = 'ISS' (only checks one column, uses exact match)
+✗ WHERE "DIVISION" ILIKE '%ISS%' (only checks one column)
+✗ WHERE "DEPARTMENT" ILIKE '%ISS%' OR "DIVISION" ILIKE '%ISS%' (missing UNIT NAME and OBJECT NAME)
+
+**MULTIPLE KEYWORDS:**
+When user provides multiple keyword variations (abbreviation + full name), search ALL combinations in ALL columns:
+
+✓ WHERE (
+    "DEPARTMENT" ILIKE '%keyword1%' OR "DEPARTMENT" ILIKE '%keyword2%'
+    OR "DIVISION" ILIKE '%keyword1%' OR "DIVISION" ILIKE '%keyword2%'
+    OR "UNIT NAME" ILIKE '%keyword1%' OR "UNIT NAME" ILIKE '%keyword2%'
+    OR "OBJECT NAME" ILIKE '%keyword1%' OR "OBJECT NAME" ILIKE '%keyword2%'
+)
 
 PERFORMANCE RULES - CRITICAL:
 ============================
-NEVER run queries without filters or LIMIT on these large tables:
-✗ SELECT DISTINCT "DEPARTMENT", "UNIT NAME" FROM adopted_budget (FORBIDDEN - too many rows)
+NEVER run queries without filters or LIMIT:
+✗ SELECT DISTINCT "DEPARTMENT", "DIVISION" FROM adopted_budget (FORBIDDEN - too slow)
 ✗ SELECT * FROM actual_expenses (FORBIDDEN - too many rows)
 
 ALWAYS add filters and LIMIT to exploratory queries:
-✓ SELECT DISTINCT "DEPARTMENT" FROM adopted_budget WHERE "DEPARTMENT" ILIKE '%Information%' LIMIT 10
-✓ SELECT DISTINCT "UNIT NAME" FROM adopted_budget WHERE "UNIT NAME" ILIKE '%HR%' OR "UNIT NAME" ILIKE '%Human%' LIMIT 10
-✓ SELECT "DEPARTMENT", "UNIT NAME" FROM adopted_budget WHERE "fiscal_year" = '2024' LIMIT 10
+✓ SELECT DISTINCT "DIVISION" FROM adopted_budget 
+  WHERE "DIVISION" ILIKE '%Information%' LIMIT 10
+
+✓ SELECT "DEPARTMENT", "DIVISION", "UNIT NAME", "amount" 
+  FROM adopted_budget 
+  WHERE "fiscal_year" = '2024' LIMIT 10
+
+✓ SELECT "DEPARTMENT", "DIVISION", "UNIT NAME", "OBJECT NAME", SUM("amount") as total
+  FROM actual_expenses
+  WHERE "fiscal_year" = '2024'
+    AND ("DIVISION" ILIKE '%ISS%' OR "DIVISION" ILIKE '%Information%')
+  GROUP BY "DEPARTMENT", "DIVISION", "UNIT NAME", "OBJECT NAME"
+  ORDER BY total DESC
+  LIMIT 20
 
 QUERY STRATEGY:
-1. Start by examining the schema carefully
-2. If you need to explore department names, use ILIKE with keywords and LIMIT 10
-3. ALWAYS double-quote column names with uppercase or spaces
-4. Use single quotes for string values (e.g., '2024', 'HR')
-5. When filtering by department, ALWAYS use ILIKE with multiple variations
-6. Always add LIMIT 10 to any SELECT DISTINCT or exploratory queries
+===============
+1. Examine schema to understand available columns
+2. For ANY keyword search: ALWAYS check all 4 text columns with ILIKE
+3. For aggregations: Always filter by fiscal_year for performance
+4. For comparisons: JOIN tables on matching keys
+5. Always double-quote mixed-case column names
+6. Use single quotes for string values ('2024', 'HR')
+7. Add LIMIT to any exploratory or DISTINCT queries
+8. Include multiple keyword variations (abbreviation + full name) when known
 
 PRE-EXECUTION CHECKLIST:
-□ Are ALL column names double-quoted?
+□ Are ALL mixed-case column names double-quoted?
 □ Are string values single-quoted?
-□ Did I search for BOTH abbreviation AND full name using ILIKE?
-□ Did I check BOTH "DEPARTMENT" and "UNIT NAME" columns?
-□ Did I add LIMIT to any SELECT DISTINCT queries?
+□ Did I search ALL FOUR text columns (DEPARTMENT, DIVISION, UNIT NAME, OBJECT NAME)?
+□ Did I use ILIKE (not =) for text matching?
+□ Did I include multiple keyword variations (e.g., 'ISS' AND 'Information Systems')?
+□ Did I add LIMIT to exploratory queries?
+□ Did I filter by fiscal_year for performance?
+□ Did I use OR between all column searches?
 
-Always format currency amounts clearly with dollar signs and commas in your final answer.
+KNOWN ENTITIES (use all variations in searches):
+- ISS / Information Systems and Services / Information Systems / Info Systems
+- HR / Human Resources
+- Public Works / PW
+- Finance / Financial Services
+- Planning / Planning Department
+
+OUTPUT FORMATTING:
+Always format currency with dollar signs and commas (e.g., $1,234,567.89).
 """
-
 
 def build_agent_executor(
     *,
