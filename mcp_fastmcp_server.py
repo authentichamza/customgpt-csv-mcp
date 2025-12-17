@@ -65,6 +65,7 @@ class AuthTokenMiddleware(BaseHTTPMiddleware):
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+
 STEP4_PREFIX = """You are analyzing county budget data across three tables:
 
 1. actual_expenses: Contains actual spending by fiscal year
@@ -79,7 +80,7 @@ CRITICAL SQL RULES - READ CAREFULLY:
 4. ALWAYS use double quotes (") for column names, not single quotes (')
 
 CORRECT EXAMPLES:
-  ✓ SELECT "DEPARTMENT", "UNIT NAME" FROM actual_expenses
+  ✓ SELECT "DEPARTMENT", "UNIT NAME" FROM actual_expenses WHERE "DEPARTMENT" ILIKE '%HR%' LIMIT 10
   ✓ WHERE "DEPARTMENT" = 'HR' AND "fiscal_year" = '2024'
   ✓ SELECT SUM("amount") FROM actual_expenses WHERE "OBJECT CODE" = 1120
 
@@ -87,6 +88,7 @@ INCORRECT EXAMPLES (WILL FAIL):
   ✗ SELECT DEPARTMENT FROM actual_expenses (missing quotes)
   ✗ WHERE 'DEPARTMENT' = 'HR' (wrong quote type)
   ✗ WHERE DEPARTMENT = 'HR' (no quotes on column name)
+  ✗ SELECT DISTINCT "DEPARTMENT" FROM adopted_budget (no LIMIT, will timeout)
 
 KEY COLUMNS (always use double quotes):
 - "DEPARTMENT" - organizational department
@@ -94,33 +96,85 @@ KEY COLUMNS (always use double quotes):
 - "UNIT NAME" - specific unit name
 - "OBJECT CODE" - expense type code
 - "OBJECT NAME" - expense type description
-- "OBJECT GROUP" - expense category (Salaries, Operating, Capital)
+- "OBJECT GROUP" - expense category (110=Salaries, 310=Operating, 640=Capital)
 - "APPROPRIATION" - budget category
 - "DEPT CODE", "UNIT", "FUND" - numeric identifiers
 - "amount" - dollar amount
 - "fiscal_year" - year as text (2019-2025)
 
+DEPARTMENT SEARCH RULES - EXTREMELY IMPORTANT:
+============================================
+When searching for departments, you MUST search for BOTH abbreviation AND full name in BOTH columns.
+
+Known Departments:
+1. ISS / Information Systems And Services / Information Systems Services
+2. HR / Human Resources
+3. Public Works
+4. Finance
+5. Planning
+
+CORRECT department filtering (searches all variations):
+✓ WHERE ("DEPARTMENT" ILIKE '%ISS%' OR "DEPARTMENT" ILIKE '%Information Systems%' 
+         OR "UNIT NAME" ILIKE '%ISS%' OR "UNIT NAME" ILIKE '%Information Systems%')
+
+✓ WHERE ("DEPARTMENT" ILIKE '%HR%' OR "DEPARTMENT" ILIKE '%Human Resources%'
+         OR "UNIT NAME" ILIKE '%HR%' OR "UNIT NAME" ILIKE '%Human Resources%')
+
+INCORRECT department filtering (misses records):
+✗ WHERE "DEPARTMENT" = 'ISS'  (only finds exact match, misses variations)
+✗ WHERE "DEPARTMENT" = 'ISS' OR "UNIT NAME" = 'ISS'  (still only exact match)
+
+PERFORMANCE RULES - CRITICAL:
+============================
+NEVER run queries without filters or LIMIT on these large tables:
+✗ SELECT DISTINCT "DEPARTMENT", "UNIT NAME" FROM adopted_budget (FORBIDDEN - too many rows)
+✗ SELECT * FROM actual_expenses (FORBIDDEN - too many rows)
+
+ALWAYS add filters and LIMIT to exploratory queries:
+✓ SELECT DISTINCT "DEPARTMENT" FROM adopted_budget WHERE "DEPARTMENT" ILIKE '%Information%' LIMIT 10
+✓ SELECT DISTINCT "UNIT NAME" FROM adopted_budget WHERE "UNIT NAME" ILIKE '%HR%' OR "UNIT NAME" ILIKE '%Human%' LIMIT 10
+✓ SELECT "DEPARTMENT", "UNIT NAME" FROM adopted_budget WHERE "fiscal_year" = '2024' LIMIT 10
+
 QUERY STRATEGY:
 1. Start by examining the schema carefully
-2. Before writing SQL, identify which columns you need
+2. If you need to explore department names, use ILIKE with keywords and LIMIT 10
 3. ALWAYS double-quote column names with uppercase or spaces
 4. Use single quotes for string values (e.g., '2024', 'HR')
-5. When checking for departments, search BOTH "DEPARTMENT" and "UNIT NAME"
+5. When filtering by department, ALWAYS use ILIKE with multiple variations
+6. Always add LIMIT 10 to any SELECT DISTINCT or exploratory queries
 
-Common department abbreviations:
-- ISS or Information Systems And Services
-- HR or Human Resources
-
-NOTE: Search for abbreviation and full name in both "DEPARTMENT" and "UNIT NAME".
-
-BEFORE executing any query, mentally verify:
+PRE-EXECUTION CHECKLIST:
 □ Are ALL column names double-quoted?
 □ Are string values single-quoted?
-□ Did I check both "DEPARTMENT" and "UNIT NAME" for department filters?
-
+□ Did I search for BOTH abbreviation AND full name using ILIKE?
+□ Did I check BOTH "DEPARTMENT" and "UNIT NAME" columns?
+□ Did I add LIMIT to any SELECT DISTINCT queries?
 
 Always format currency amounts clearly with dollar signs and commas in your final answer.
 """
+
+
+def build_agent_executor(
+    *,
+    database_url: str | None = None,
+    model_name: str = "gpt-4o-mini",
+    temperature: float = 0,
+    sample_rows_in_table_info: int = 2,
+    verbose: bool = False,
+    timeout: float | None = None,
+    max_retries: int | None = 2,
+):
+    """Build the LangChain SQL agent executor."""
+    logger.info(f"Building agent executor with model={model_name}")
+    
+    db_url = database_url or os.getenv(
+        "DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/ocfl",
+    )
+    # Heroku commonly provides DATABASE_URL as `postgres://...` but SQLAlchemy expects `postgresql://...`
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql://" + db_url[len("postgres://") :]
+   
 
 
 def build_agent_executor(
