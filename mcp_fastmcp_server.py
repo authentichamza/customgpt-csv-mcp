@@ -62,9 +62,12 @@ def build_agent_executor(
     logger.info(f"Building agent executor with model={model_name}")
     
     db_url = database_url or os.getenv(
-        "DATABASE_URL", 
-        "postgresql://postgres:postgres@localhost:5432/ocfl"
+        "PG_DATABASE_URL",
+        "postgresql://postgres:postgres@localhost:5432/ocfl",
     )
+    # Heroku commonly provides DATABASE_URL as `postgres://...` but SQLAlchemy expects `postgresql://...`
+    if db_url.startswith("postgres://"):
+        db_url = "postgresql://" + db_url[len("postgres://") :]
     
     logger.info(f"Connecting to database: {db_url.split('@')[-1]}")  # Log without credentials
     
@@ -142,7 +145,7 @@ def _get_agent_executor(
     global _agent_executor, _agent_config
 
     config = (
-        database_url or os.getenv("DATABASE_URL"),
+        database_url or os.getenv("PG_DATABASE_URL"),
         model_name,
         float(temperature),
         int(sample_rows_in_table_info),
