@@ -111,7 +111,7 @@ transport_security = (
 )
 
 # Initialize FastMCP
-mcp = FastMCP("budget-sql-agent-optimized", transport_security=transport_security, port=os.getenv("PORT", 8000, host=os.getenv("HOST", "0.0.0.0")))
+mcp = FastMCP("budget-sql-agent-optimized", transport_security=transport_security, port=os.getenv("PORT", 8000), host=os.getenv("HOST", "0.0.0.0"))
 
 # Global agent cache (initialized once per process)
 _agent: Any | None = None
